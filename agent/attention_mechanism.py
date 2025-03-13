@@ -2,7 +2,8 @@
 import streamlit as st
 import json
 from typing import Callable, Optional
-from .utils import parse_constraint, handle_retryable_error
+from .utils import parse_constraint
+from .node import Node
 
 ConstraintChecker = Callable[[str, "Node"], bool]
 

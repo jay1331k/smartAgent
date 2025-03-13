@@ -6,9 +6,9 @@ from .memory import LocalMemory, GlobalMemory
 from typing import Optional
 import json
 import os
-from .utils import handle_retryable_error
 
-# --- Constants --- (Moved outside the class)
+
+# --- Constants ---
 MAX_RETRIES: int = 3
 RETRY_DELAY: int = 2
 LLM_MODEL: str = "gemini-1.5-pro-002"
@@ -27,6 +27,9 @@ class Agent:
         self.llm = llm
         self.llm_config = llm_config
         self.execution_count = 0
+        # NEW
+        self.max_depth = MAX_DEPTH  # Use the constant
+        self.global_context_summary_interval = GLOBAL_CONTEXT_SUMMARY_INTERVAL #Use the constant
 
     def run(self, task_description: str, initial_constraints: Optional[list[str]] = None) -> None:
         """Main entry point for running the agent."""
@@ -103,40 +106,44 @@ class Agent:
         """Executes a single node."""
         node.status = "running"
         prompt = node.build_prompt()
+        st.write(f"Prompt: {prompt}")  # Keep for debugging
 
-        for attempt in range(MAX_RETRIES):  # Use the constant here
+        for attempt in range(MAX_RETRIES):
             try:
                 response = self.llm.generate_content(
                     prompt,
                     generation_config=st.session_state.llm_config
                 )
                 llm_output = response.text
-                try:
-                    json.loads(llm_output)  # Basic JSON validation
-                except json.JSONDecodeError:
-                    raise ValueError(f"LLM output is not valid JSON: {llm_output}")
+                st.write(f"Raw LLM Output (Attempt {attempt + 1}):")  # Keep for debugging
+                st.code(llm_output, language="text")
 
-                node.output = llm_output
-                node.process_llm_output(llm_output)
+                node.output = llm_output  # Store the *raw* output
+                node.process_llm_output(llm_output) # Process RAW output.
 
                 if not st.session_state.attention_mechanism.check_constraints(node):
                     return  # Constraint check failed
-                break  # Exit loop if successful
+                break  # Exit retry loop on success
 
             except Exception as e:
                 if handle_retryable_error(node, attempt, e):
-                    return
+                    return  # Max retries exceeded
 
-        if node.status == "running":  # If still in running state
+        if node.status == "running":
             node.status = "completed"
-            if not node.child_ids:  # Leaf node
+            if not node.child_ids:
                 st.session_state.attention_mechanism.summarize_node(node)
+
+
 
     def _regenerate_node(self, node: Node, regeneration_guidance: str) -> None:
         """Resets a node for regeneration and stores guidance."""
         node.status = "pending"
         node.output = ""
         node.error_message = ""
+        # Ensure local_memory is a LocalMemory object
+        if not isinstance(node.local_memory, LocalMemory):
+            node.local_memory = LocalMemory(node.node_id)  # Re-initialize if needed
         node.store_in_memory("regeneration_guidance", regeneration_guidance)
 
     def save_session(self, filename: str) -> None:
@@ -177,7 +184,9 @@ class Agent:
             new_node.status = node_data["status"]
             new_node.output = node_data["output"]
             new_node.error_message = node_data["error_message"]
-            new_node.local_memory.local_memory = node_data["local_memory"]  # Load the dictionary
+            # *** IMPORTANT: Create a LocalMemory object ***
+            new_node.local_memory = LocalMemory(new_node.node_id)  # Create the object
+            new_node.local_memory.local_memory = node_data["local_memory"]  # Load the data
             st.session_state.node_lookup[node_id] = new_node
 
         st.session_state.attention_mechanism.dependency_graph = data["attention_mechanism"]["dependency_graph"]
