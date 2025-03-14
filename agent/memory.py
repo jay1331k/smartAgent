@@ -1,80 +1,78 @@
-"""
-Memory classes for SmartAgent.
-"""
-import os
-import json
-from typing import Dict, Optional, Any, Union
+"""Memory modules for storing and retrieving agent information."""
+
+from typing import Dict, Any, Optional
 
 class LocalMemory:
-    """
-    Local memory for a specific node.
-    Stores key-value pairs related to a single node's execution.
-    """
+    """Memory specific to a node, storing task-specific information."""
+    
     def __init__(self, node_id: str):
+        """Initialize local memory for a specific node.
+        
+        Args:
+            node_id: The ID of the node this memory belongs to
+        """
         self.node_id = node_id
         self.local_memory: Dict[str, Any] = {}
-    
+        
     def store(self, key: str, value: Any) -> None:
-        """
-        Store a value in local memory.
+        """Store a value in memory.
         
         Args:
             key: The key to store the value under
-            value: The value to store (can be any JSON-serializable type)
+            value: The value to store
         """
         self.local_memory[key] = value
-    
+        
     def retrieve(self, key: str) -> Optional[Any]:
-        """
-        Retrieve a value from local memory.
+        """Retrieve a value from memory.
         
         Args:
             key: The key to retrieve
             
         Returns:
-            The value, or None if not found
+            The stored value, or None if not found
         """
         return self.local_memory.get(key)
-    
+        
     def clear(self) -> None:
-        """Clear all local memory."""
+        """Clear all memory."""
         self.local_memory = {}
         
     def get_all(self) -> Dict[str, Any]:
-        """
-        Get all stored memory items.
+        """Get all memory contents.
         
         Returns:
-            Dictionary containing all memory items
+            Dict containing all stored memory
         """
         return self.local_memory
-        
+
     def save_to_disk(self, directory: str = "node_memory") -> None:
-        """
-        Save local memory to disk.
+        """Save memory to disk.
         
         Args:
-            directory: Directory to save memory to
+            directory: Directory to save to
         """
+        import os
+        import json
         os.makedirs(directory, exist_ok=True)
         filepath = os.path.join(directory, f"{self.node_id}.json")
         with open(filepath, 'w') as f:
             json.dump(self.local_memory, f, indent=2)
     
     def load_from_disk(self, directory: str = "node_memory") -> bool:
-        """
-        Load local memory from disk.
+        """Load memory from disk.
         
         Args:
-            directory: Directory to load memory from
+            directory: Directory to load from
             
         Returns:
-            True if loaded successfully, False otherwise
+            True if successful, False otherwise
         """
+        import os
+        import json
         filepath = os.path.join(directory, f"{self.node_id}.json")
         if not os.path.exists(filepath):
             return False
-            
         try:
             with open(filepath, 'r') as f:
                 self.local_memory = json.load(f)
@@ -82,62 +80,58 @@ class LocalMemory:
         except Exception:
             return False
 
+
 class GlobalMemory:
-    """
-    Global memory for the agent.
-    Stores information that needs to be accessible across all nodes.
-    """
+    """Global memory shared across all nodes."""
+    
     def __init__(self):
+        """Initialize global memory."""
         self.global_context: str = "This agent can solve tasks by breaking them down into subtasks."
         self.shared_data: Dict[str, Any] = {}
-    
+        
     def update_context(self, context: str) -> None:
-        """
-        Update the global context.
+        """Update the global context.
         
         Args:
-            context: The new context
+            context: New context string
         """
         self.global_context = context
-    
+        
     def get_context(self) -> str:
-        """
-        Get the current global context.
+        """Get the current global context.
         
         Returns:
-            The global context
+            The current context string
         """
         return self.global_context
-    
+        
     def store(self, key: str, value: Any) -> None:
-        """
-        Store a value in global memory.
+        """Store a value in shared memory.
         
         Args:
             key: The key to store the value under
             value: The value to store
         """
         self.shared_data[key] = value
-    
+        
     def retrieve(self, key: str) -> Optional[Any]:
-        """
-        Retrieve a value from global memory.
+        """Retrieve a value from shared memory.
         
         Args:
             key: The key to retrieve
             
         Returns:
-            The value, or None if not found
+            The stored value, or None if not found
         """
         return self.shared_data.get(key)
-    
+
     def save_to_disk(self, filepath: str = "global_memory.json") -> None:
-        """
-        Save global memory to disk.
+        """Save global memory to disk.
         
         Args:
-            filepath: The path to save to
+            filepath: Path to save to
         """
+        import json
         with open(filepath, 'w') as f:
             json.dump({
                 "global_context": self.global_context,
@@ -145,18 +139,18 @@ class GlobalMemory:
             }, f, indent=2)
     
     def load_from_disk(self, filepath: str = "global_memory.json") -> bool:
-        """
-        Load global memory from disk.
+        """Load global memory from disk.
         
         Args:
-            filepath: The path to load from
+            filepath: Path to load from
             
         Returns:
-            True if loaded successfully, False otherwise
+            True if successful, False otherwise
         """
+        import os
+        import json
         if not os.path.exists(filepath):
             return False
-            
         try:
             with open(filepath, 'r') as f:
                 data = json.load(f)

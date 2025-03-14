@@ -1,143 +1,144 @@
 # SMARTAGENT/agent/node.py
+"""Node class for representing tasks in the agent's hierarchy."""
+
 import streamlit as st
-import re
-import json
-import time
 import uuid
 import os
-import shutil
-import subprocess
-import requests
-from urllib.parse import urlparse
-from typing import Optional, Union, Dict, Any, List
+from typing import Optional, Dict, Any, List
 from .memory import LocalMemory
-from .utils import handle_retryable_error, extract_json_from_text
+from .utils import extract_json_from_text
 from .constants import STATUS_PENDING, STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED, STATUS_OVERRIDDEN
-from .memory_utils import create_structured_memory, parse_response
 
 class Node:
     """
     A node represents a discrete task or step in the agent's execution.
     Each node has its own local memory and can access global memory.
     """
-    def __init__(self, node_id: Optional[str] = None, task_description: Optional[str] = None, depth: int = 0, node_type: str = "task"):
-        """
-        Initialize a new Node.
+    def __init__(self, parent_id: Optional[str] = None, task_description: Optional[str] = None, depth: int = 0):
+        """Initialize a new Node.
         
         Args:
-            node_id: Unique identifier for this node (generated if not provided)
+            parent_id: ID of the parent node
             task_description: Description of the task for this node
             depth: Depth level in the task tree (0 for root)
-            node_type: Type of node (task, subtask, etc.)
         """
-        self.node_id = node_id if node_id else str(uuid.uuid4())
-        self.node_type = node_type
+        self.node_id = str(uuid.uuid4())
         self.depth = depth
         self.local_memory = LocalMemory(self.node_id)
-        self.parent_id: Optional[str] = None
-        self.children: List[str] = []
-        self.status = "pending"  # pending, in_progress, completed, failed
+        self.parent_id = parent_id
+        self.child_ids: List[str] = []
+        self.status = STATUS_PENDING
+        self.output = ""  # Store raw output
+        self.error_message = ""
+        self.task_description = task_description
         
-        # Store task description if provided
         if task_description:
             self.store_in_memory("task", task_description)
         
     def store_in_memory(self, key: str, value: Any) -> None:
-        """
-        Store data in this node's local memory.
-        
-        Args:
-            key: The key to store the value under
-            value: The value to store
-        """
+        """Store data in this node's local memory."""
         self.local_memory.store(key, value)
         
     def retrieve_from_memory(self, key: str) -> Any:
-        """
-        Retrieve data from this node's local memory.
-        
-        Args:
-            key: The key to retrieve
-            
-        Returns:
-            The stored value, or None if not found
-        """
+        """Retrieve data from this node's local memory."""
         return self.local_memory.retrieve(key)
     
-    def store_llm_response(self, response: str) -> None:
-        """
-        Process and store an LLM response.
-        
-        Args:
-            response: Raw response from the LLM
-        """
-        memory_dict = create_structured_memory(response)
-        for key, value in memory_dict.items():
-            self.store_in_memory(key, value)
-    
     def add_child(self, child_id: str) -> None:
-        """
-        Add a child node ID to this node.
-        
-        Args:
-            child_id: ID of the child node
-        """
-        if child_id not in self.children:
-            self.children.append(child_id)
+        """Add a child node ID to this node."""
+        if child_id not in self.child_ids:
+            self.child_ids.append(child_id)
     
-    def set_parent(self, parent_id: str) -> None:
-        """
-        Set the parent node ID for this node.
-        
-        Args:
-            parent_id: ID of the parent node
-        """
-        self.parent_id = parent_id
-        
     def update_status(self, status: str) -> None:
-        """
-        Update the status of this node.
-        
-        Args:
-            status: New status (pending, in_progress, completed, failed)
-        """
+        """Update the status of this node."""
         self.status = status
         self.store_in_memory("status", status)
     
     def get_summary(self) -> Dict[str, Any]:
-        """
-        Get a summary of this node's state and memory.
-        
-        Returns:
-            Dictionary with node information
-        """
+        """Get a summary of this node's state and memory."""
         return {
             "node_id": self.node_id,
-            "node_type": self.node_type,
             "status": self.status,
             "parent_id": self.parent_id,
-            "children": self.children,
+            "children": self.child_ids,
             "task": self.retrieve_from_memory("task") or "",
             "result": self.retrieve_from_memory("result") or ""
         }
     
+    def build_prompt(self) -> str:
+        """Constructs the prompt for the LLM."""
+        prompt = []
+        # Add global context
+        if 'agent' in st.session_state:
+            prompt.append(st.session_state.agent.global_memory.get_context())
+
+        # Add task description
+        task_description = self.retrieve_from_memory("task")
+        if task_description:
+            prompt.append(f"Task: {task_description}")
+
+        # Add constraints
+        if self.node_id in st.session_state.attention_mechanism.constraints:
+            constraints = st.session_state.attention_mechanism.constraints[self.node_id]
+            if constraints:
+                prompt.append("Constraints:")
+                for constraint in constraints:
+                    prompt.append(f"- {constraint}")
+
+        # Add parent output if applicable
+        if self.parent_id and self.parent_id in st.session_state.node_lookup:
+            parent_node = st.session_state.node_lookup[self.parent_id]
+            parent_output = parent_node.output
+            if parent_output:
+                prompt.append(f"Output from Parent Node ({parent_node.node_id[:8]}...): {parent_output}")
+
+        # Add regeneration guidance if applicable
+        regeneration_guidance = self.retrieve_from_memory("regeneration_guidance")
+        if regeneration_guidance:
+            prompt.append(f"Regeneration Guidance: {regeneration_guidance}")
+
+        # Join and return
+        return "\n\n".join(prompt)
+    
+    def process_llm_output(self, llm_output: str) -> None:
+        """Processes the raw LLM output, extracting subtasks or results."""
+        try:
+            parsed_output = extract_json_from_text(llm_output)
+            if parsed_output:
+                if "subtasks" in parsed_output and isinstance(parsed_output["subtasks"], list):
+                    for subtask in parsed_output["subtasks"]:
+                        if isinstance(subtask, str):
+                            # Simple string subtask
+                            self.create_child_node(subtask, self.depth + 1)
+                        elif isinstance(subtask, dict) and "task_description" in subtask:
+                            # Subtask with description
+                            self.create_child_node(subtask["task_description"], self.depth + 1)
+                        # else: ignore malformed subtasks
+                elif "result" in parsed_output:
+                    self.store_in_memory("result", parsed_output["result"])
+                else:
+                    # Store the entire parsed output if no specific keys are found
+                    self.store_in_memory("result", parsed_output)
+            else:
+                # If no JSON, store the entire output as the result
+                self.store_in_memory("result", llm_output)
+
+        except Exception as e:
+            self.status = "failed"
+            self.error_message = f"Error processing LLM output: {str(e)}"
+
+    def create_child_node(self, task_description: str, depth: int) -> "Node":
+        """Creates a child node and adds it to the tree."""
+        from . import node as node_module  # Import here to avoid circular imports
+        new_node = node_module.Node(parent_id=self.node_id, task_description=task_description, depth=depth)
+        st.session_state.node_lookup[new_node.node_id] = new_node
+        self.add_child(new_node.node_id)
+        st.session_state.attention_mechanism.track_dependencies(self.node_id, new_node.node_id)
+        return new_node
+    
     def save_state(self, directory: str = "node_memory") -> None:
-        """
-        Save the node's state and memory to disk.
-        
-        Args:
-            directory: Directory to save state to
-        """
+        """Save the node's state and memory to disk."""
         self.local_memory.save_to_disk(directory)
     
     def load_state(self, directory: str = "node_memory") -> bool:
-        """
-        Load the node's state and memory from disk.
-        
-        Args:
-            directory: Directory to load state from
-            
-        Returns:
-            True if loaded successfully, False otherwise
-        """
+        """Load the node's state and memory from disk."""
         return self.local_memory.load_from_disk(directory)

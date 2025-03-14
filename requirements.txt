@@ -1,5 +1,13 @@
-streamlit>=1.22.0
-requests>=2.28.0
+# Core dependencies
+streamlit>=1.29.0
 google-generativeai>=0.3.0
-streamlit-agraph>=0.0.7
-python-dotenv>=0.19.0
+python-dotenv>=1.0.0
+
+# UI components
+streamlit-ace>=0.1.1
+streamlit-agraph>=0.0.45
+
+# Utilities
+requests>=2.31.0
+Pillow>=10.1.0
+watchdog>=3.0.0

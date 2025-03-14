@@ -11,6 +11,9 @@ RETRY_DELAY = 2
 # Agent Configuration
 MAX_DEPTH = 5
 GLOBAL_CONTEXT_SUMMARY_INTERVAL = 5
+LLM_MODEL = "gemini-pro"
+LLM_TEMPERATURE = 0.7
+LLM_MAX_TOKENS = 2048
 
 # Status constants
 STATUS_PENDING = "pending"
