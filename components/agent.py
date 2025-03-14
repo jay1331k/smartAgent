@@ -155,34 +155,57 @@ class Agent:
             st.write("### Generated Code Files")
             st.write(f"Found {len(code_files)} code file(s)")
             
-            # Create tabs for code files
-            if len(code_files) > 0:
-                file_names = list(code_files.keys())
-                tabs = st.tabs(file_names)
+            # Store code files in session state for this node
+            node_key = f"code_files_{node.node_id}"
+            st.session_state[node_key] = code_files
+            
+            # Store the code files in node's memory
+            node.store_in_memory("code_files", code_files)
+            
+            # Use session state for file selection instead of radio button
+            file_selection_key = f"selected_file_idx_{node.node_id}"
+            if file_selection_key not in st.session_state:
+                st.session_state[file_selection_key] = 0
                 
-                for i, (filepath, content) in enumerate(code_files.items()):
-                    with tabs[i]:
-                        language = self.file_manager.get_language_from_extension(filepath)
-                        st.code(content, language=language)
-                        
-                        # Store the code in node's memory
-                        node.store_in_memory("code_files", code_files)
-                        
-                        # Add save button
-                        col1, col2 = st.columns([1, 3])
-                        with col1:
-                            if st.button("Save File", key=f"save_{node.node_id}_{filepath}"):
-                                success = self.file_manager.save_file(filepath, content)
-                                if success:
-                                    st.success(f"File saved: {filepath}")
-                                else:
-                                    st.error(f"Failed to save file: {filepath}")
-                        with col2:
-                            if st.button("Open in Editor", key=f"editor_{node.node_id}_{filepath}"):
-                                # Set active file in editor
-                                st.session_state.active_file = filepath
-                                st.session_state.file_content = content
-                                st.experimental_rerun()
+            # Get file names and create a selection widget
+            file_names = list(code_files.keys())
+            if not file_names:  # Safety check
+                return
+                
+            # Select file using a selectbox (not inside a form)
+            selected_idx = st.selectbox(
+                "Select file to view:",
+                range(len(file_names)),
+                format_func=lambda i: file_names[i],
+                key=file_selection_key
+            )
+            
+            # Update selected file in session state
+            selected_file = file_names[selected_idx]
+            st.session_state[f"current_file_{node.node_id}"] = selected_file
+            
+            # Display the selected file's content
+            content = code_files[selected_file]
+            language = self.file_manager.get_language_from_extension(selected_file)
+            
+            # Display the code
+            st.code(content, language=language)
+            
+            # Add save action - use separate button outside form context
+            save_key = f"save_btn_{node.node_id}_{selected_file}"
+            if st.button("Save File", key=save_key):
+                success = self.file_manager.save_file(selected_file, content)
+                if success:
+                    st.success(f"File saved: {selected_file}")
+                else:
+                    st.error(f"Failed to save file: {selected_file}")
+            
+            # Add open in editor action
+            editor_key = f"editor_btn_{node.node_id}_{selected_file}"
+            if st.button("Open in Editor", key=editor_key):
+                st.session_state.active_file = selected_file
+                st.session_state.file_content = content
+                st.experimental_rerun()
 
     def _regenerate_node(self, node: Node, regeneration_guidance: str) -> None:
         node.status = STATUS_PENDING

@@ -201,49 +201,18 @@ Code requirements:
         
     def extract_code_files(self) -> Dict[str, str]:
         """Extract code files from the output if present."""
+        from components.utils import extract_code_with_filenames
+        
+        # Use the utility function that handles various formats
+        extracted_data = extract_code_with_filenames(self.output)
+        
+        # Convert to simple filepath -> content mapping
         result = {}
+        for filepath, info in extracted_data.items():
+            result[filepath] = info["content"]
         
-        # Pattern 1: Markdown code blocks with filepath comments
-        pattern1 = r'```(\w*)\n(?:\/\/|#)\s*filepath:\s*(.*?)\n(.*?)```'
-        matches = re.findall(pattern1, self.output, re.DOTALL)
-        
-        for lang, filepath, code in matches:
-            result[filepath.strip()] = code.strip()
-        
-        # Pattern 2: Explicit filepath mentions followed by code blocks
-        pattern2 = r'[Ff]ile(?:path)?:\s*[`"\']?(.*?)[`"\']?\n\s*```(\w*)\n(.*?)```'
-        matches = re.findall(pattern2, self.output, re.DOTALL)
-        
-        for filepath, lang, code in matches:
-            filepath = filepath.strip()
-            if filepath not in result:  # Don't override if already found
-                result[filepath.strip()] = code.strip()
-                
-        # Pattern 3: Extract common file patterns with extensions
-        if not result:
-            file_extensions = ['.py', '.js', '.ts', '.html', '.css', '.json']
-            for ext in file_extensions:
-                pattern3 = r'(\S+?{0})\s*[:=]\s*```(\w*)\n(.*?)```'.format(re.escape(ext))
-                matches = re.findall(pattern3, self.output, re.DOTALL)
-                
-                for filepath, lang, code in matches:
-                    filepath = filepath.strip()
-                    result[filepath] = code.strip()
-        
-        # If we found no code files and we have a code constraint,
-        # try to intelligently extract any code blocks with proper filenames
-        if not result and self.has_code_constraint():
-            code_blocks = re.findall(r'```(\w+)\n(.*?)```', self.output, re.DOTALL)
-            for i, (lang, code) in enumerate(code_blocks):
-                if lang in ['python', 'py']:
-                    result[f"script_{i+1}.py"] = code.strip()
-                elif lang in ['javascript', 'js']:
-                    result[f"script_{i+1}.js"] = code.strip()
-                elif lang in ['html']:
-                    result[f"page_{i+1}.html"] = code.strip()
-                elif lang in ['css']:
-                    result[f"style_{i+1}.css"] = code.strip()
-                elif lang:
-                    result[f"file_{i+1}.{lang}"] = code.strip()
+        # Log finding to help with debugging
+        if result:
+            print(f"Found {len(result)} code files: {list(result.keys())}")
         
         return result

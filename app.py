@@ -198,36 +198,41 @@ def main():
             
             # Task input and running
             if 'root_node_id' not in st.session_state:
-                with st.form("task_form"):
+                task_form = st.form(key="task_form")
+                with task_form:
                     task_description = st.text_area("Enter Task Description:", height=100)
                     
                     # Add constraints input with examples
-                    st.write("Add constraints (optional):  ")
+                    st.write("Add constraints (optional):")
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        add_format_constraint = st.checkbox("Require JSON")
+                        add_format_constraint = st.checkbox("Require JSON", key="format_json_checkbox")
                     
                     with col2:
-                        add_code_constraint = st.checkbox("Generate code")
+                        add_code_constraint = st.checkbox("Generate code", key="generate_code_checkbox")
                         
-                    custom_constraint = st.text_input("Custom constraint")
+                    custom_constraint = st.text_input("Custom constraint:", key="custom_constraint_input")
                     
+                    # Only have a single submit button in the form
                     submitted = st.form_submit_button("Run Task")
+                
+                # Process the form submission outside the form
+                if submitted and task_description:
+                    # Build constraints list
+                    constraints = []
+                    if add_format_constraint:
+                        constraints.append("format:json")
+                    if add_code_constraint:
+                        constraints.append("code:true")
+                    if custom_constraint:
+                        constraints.append(custom_constraint)
                     
-                    if submitted and task_description:
-                        # Build constraints list
-                        constraints = []
-                        if add_format_constraint:
-                            constraints.append("format:json")
-                        if add_code_constraint:
-                            constraints.append("code:true")
-                        if custom_constraint:
-                            constraints.append(custom_constraint)
-                        
+                    # Show a spinner while executing
+                    with st.spinner("Initializing task..."):
                         # Run agent with constraints
                         st.session_state.agent.run(task_description, constraints if constraints else None)
-                        st.experimental_rerun()
+                    st.experimental_rerun()
             # Display task tree with improved graph view
             else:
                 # Add view toggle
@@ -403,13 +408,18 @@ def main():
                                 with output_tabs[1]:
                                     # Create file selector
                                     file_paths = list(code_files.keys())
-                                    selected_file = st.selectbox(
+                                    
+                                    # Use selectbox for file selection instead of buttons
+                                    selected_file_idx = st.selectbox(
                                         "Select file:", 
-                                        options=file_paths,
+                                        range(len(file_paths)),
+                                        format_func=lambda i: file_paths[i],
                                         key=f"file_select_{node.node_id}"
                                     )
                                     
-                                    if selected_file:
+                                    # Display the selected file
+                                    if file_paths:
+                                        selected_file = file_paths[selected_file_idx]
                                         content = code_files[selected_file]
                                         language = selected_file.split('.')[-1] if '.' in selected_file else 'text'
                                         st.code(content, language=language)
@@ -417,7 +427,9 @@ def main():
                                         # File actions
                                         col1, col2 = st.columns(2)
                                         with col1:
-                                            if st.button("Save File", key=f"save_code_{node.node_id}"):
+                                            # Use a unique key for the save button
+                                            save_key = f"save_code_{node.node_id}_{selected_file}"
+                                            if st.button("Save File", key=save_key):
                                                 try:
                                                     # Create directory if needed
                                                     directory = os.path.dirname(selected_file)
@@ -432,7 +444,9 @@ def main():
                                                     st.error(f"Error saving file: {str(e)}")
                                         
                                         with col2:
-                                            if st.button("Open in Editor", key=f"open_code_{node.node_id}"):
+                                            # Use a unique key for the editor button
+                                            editor_key = f"open_code_{node.node_id}_{selected_file}"
+                                            if st.button("Open in Editor", key=editor_key):
                                                 st.session_state.active_file = selected_file
                                                 st.session_state.file_content = content
                                                 st.experimental_rerun()
