@@ -49,7 +49,8 @@ class Editor:
         }
     
     def display(self):
-        st.header("💻 Code Editor")
+        # Remove the header since it's now in a sticky header in app.py
+        # st.header("💻 Code Editor")  <- Remove this line
         
         # Add tabs for multiple features
         ide_tabs = st.tabs(["Editor", "AI Assistant", "Documentation"])
@@ -152,9 +153,14 @@ class Editor:
                 line_count = len(st.session_state.file_content.split('\n'))
                 st.info(f"Lines: {line_count}")
             
-            # FIXED: Instead of using nested expanders for file preview, use columns or plain text
-            st.write("**File Preview:**")
-            st.code(st.session_state.file_content, language=file_language)
+            # FIXED: Make file preview collapsible and collapsed by default
+            preview_key = f"show_preview_{self.current_file}"
+            if preview_key not in st.session_state:
+                st.session_state[preview_key] = False
+                
+            with st.expander("📄 File Preview", expanded=st.session_state[preview_key]):
+                st.code(st.session_state.file_content, language=file_language)
+                st.session_state[preview_key] = st.session_state.get(preview_key, False)
                 
         else:
             # No file selected

@@ -1,10 +1,7 @@
 # SMARTAGENT/ui/app.py
-import sys
-sys.path.insert(0, ".") # Add current directory to Python path
 import streamlit as st
 import google.generativeai as genai
 from agent.agent import Agent
-from agent import agent
 # from agent.utils import generate_plotly_graph, display_node_textual, display_selected_node_details # Remove Plotly and textual display
 from agent.utils import handle_retryable_error, parse_constraint  # Keep utility functions
 import os

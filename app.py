@@ -26,6 +26,84 @@ except ImportError:
 def main():
     st.set_page_config(page_title="Smart Agent IDE", layout="wide", page_icon="🤖")
     
+    # Add CSS for fixed terminal at bottom and sticky headers
+    st.markdown("""
+    <style>
+    /* Main container structure */
+    .main {
+        padding-bottom: 250px !important; /* Make space for the terminal */
+    }
+    
+    
+    
+    /* Terminal resize handle */
+    .terminal-handle {
+        position: absolute;
+        top: -10px;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background-color: #f0f0f0;
+        cursor: ns-resize;
+        border-top: 1px solid #ddd;
+        border-bottom: 1px solid #ddd;
+        text-align: center;
+    }
+    
+    /* Terminal handle icon */
+    .terminal-handle::after {
+        content: "≡";
+        font-size: 14px;
+        color: #888;
+        line-height: 10px;
+    }
+    
+    /* Sticky headers */
+    .sticky-header {
+        position: sticky;
+        top: 0;
+        background-color: white;
+        z-index: 100;
+        padding: 10px 0;
+    }
+    
+    /* Custom styling for sections */
+    .editor-section, .agent-section {
+        padding: 0 1rem;
+        margin-bottom: 0;
+    }
+
+    /* Terminal collapse button */
+    .terminal-collapse-btn {
+        float: right;
+        cursor: pointer;
+        color: #888;
+        font-size: 18px;
+        margin-top: -5px;
+    }
+    
+    /* Hide default Streamlit elements that disrupt layout */
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* Make content areas scrollable */
+    .scrollable-content {
+        overflow-y: auto;
+        max-height: calc(100vh - 350px); /* Adjust based on terminal height */
+    }
+    </style>
+    
+    <script>
+    // JavaScript for terminal resize functionality
+    document.addEventListener('DOMContentLoaded', function() {
+        // This script will be loaded but won't work directly in Streamlit
+        // We'll need custom components for true drag functionality
+        console.log("Terminal resize script loaded");
+    });
+    </script>
+    """, unsafe_allow_html=True)
+    
     # Initialize Gemini API
     if not initialize_gemini_api():
         st.stop()
@@ -47,17 +125,26 @@ def main():
             explorer.display_file_tree()
     else:
         st.sidebar.error("Invalid directory path")
-    
-    # Main layout - divide into top and bottom sections
-    main_top, main_bottom = st.container(), st.container()
 
-    # Main top - divide into agent and editor
-    with main_top:
+    # Main layout - Only top section now
+    st.markdown('<div class="main-content">', unsafe_allow_html=True)
+    
+    # Main content area
+    main_container = st.container()
+    
+    with main_container:
+        # Use columns for the main layout
         agent_col, editor_col = st.columns([1, 2])
-        
+
         # Agent Interface (left column)
         with agent_col:
+            # Sticky header for Agent section
+            st.markdown('<div class="sticky-header agent-section">', unsafe_allow_html=True)
             st.header("🤖 Smart Agent")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Scrollable content area for agent
+            st.markdown('<div class="scrollable-content">', unsafe_allow_html=True)
             
             # Initialize Agent
             if 'agent' not in st.session_state:
@@ -95,8 +182,21 @@ def main():
             # Display task tree
             else:
                 st.subheader("Task Tree")
-                from components.ui import render_node_tree
-                render_node_tree(st.session_state.root_node_id)
+                
+                # Add toggle for graph view
+                if 'show_graph' in st.session_state and st.session_state['show_graph']:
+                    from components.ui import render_node_graph
+                    root_to_visualize = st.session_state.get('graph_root_id', st.session_state.root_node_id)
+                    render_node_graph(root_to_visualize)
+                else:
+                    from components.ui import render_node_tree
+                    render_node_tree(st.session_state.root_node_id)
+                
+                # Show graph view button at top level
+                if not st.session_state.get('show_graph', False) and st.button("Show Full Graph"):
+                    st.session_state['show_graph'] = True
+                    st.session_state['graph_root_id'] = st.session_state.root_node_id
+                    st.experimental_rerun()
                 
                 # New task button
                 if st.button("Start New Task"):
@@ -127,20 +227,80 @@ def main():
                             st.error(f"Error loading session: {str(e)}")
                         finally:
                             os.unlink(tmp_path)
+            
+            # Close the scrollable content
+            st.markdown('</div>', unsafe_allow_html=True)
         
         # Code Editor (middle column)
         with editor_col:
+            # Sticky header for Editor section
+            st.markdown('<div class="sticky-header editor-section">', unsafe_allow_html=True)
+            st.header("💻 Code Editor")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Scrollable content area for editor
+            st.markdown('<div class="scrollable-content">', unsafe_allow_html=True)
+            
             editor = Editor()
             editor.display()
+            
+            # Close the scrollable content
+            st.markdown('</div>', unsafe_allow_html=True)
     
-    # Terminal (bottom section)
-    with main_bottom:
-        st.header("📟 Terminal")
+    # Close the main content
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Terminal (fixed at bottom)
+    # Check if terminal should be shown
+    if 'show_terminal' not in st.session_state:
+        st.session_state.show_terminal = True
+    
+    if 'terminal_height' not in st.session_state:
+        st.session_state.terminal_height = 300
+        
+    terminal_style = f"""
+    <style>
+    .fixed-terminal {{
+        max-height: {st.session_state.terminal_height}px;
+    }}
+    </style>
+    """
+    st.markdown(terminal_style, unsafe_allow_html=True)
+    
+    if st.session_state.show_terminal:
+        st.markdown('<div class="fixed-terminal">', unsafe_allow_html=True)
+        st.markdown('<div class="terminal-handle" id="terminal-resize-handle"></div>', unsafe_allow_html=True)
+        
+        # Terminal header with collapse button
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            st.header("📟 Terminal")
+        with col2:
+            if st.button("▼", help="Collapse Terminal"):
+                st.session_state.show_terminal = False
+                st.experimental_rerun()
+        
+        # Initialize terminal if not already done
         if 'terminal' not in st.session_state:
             st.session_state.terminal = Terminal()
         
+        # Display terminal interface
         cli = ClineInterface(st.session_state.terminal)
         cli.display()
+        st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        # Show the collapsed terminal bar
+        st.markdown('''
+        <div style="position: fixed; bottom: 0; left: 0; right: 0; height: 30px; 
+                    background-color: #f0f0f0; border-top: 1px solid #ddd; 
+                    text-align: center; cursor: pointer; z-index: 1000;"
+             onclick="document.querySelector('.fixed-terminal').style.display = 'block'; this.style.display = 'none';">
+            <span style="line-height: 30px;">📟 Terminal</span>
+        </div>
+        ''', unsafe_allow_html=True)
+        if st.button("▲ Show Terminal", key="show_terminal_btn", help="Expand Terminal"):
+            st.session_state.show_terminal = True
+            st.experimental_rerun()
     
     # Settings in sidebar
     with st.sidebar.expander("⚙️ Settings"):
@@ -177,6 +337,13 @@ def main():
                 st.session_state.agent.llm_config = st.session_state.llm_config
             st.success("Settings applied successfully")
             
+        # Terminal settings
+        st.subheader("Terminal Settings")
+        terminal_height = st.slider("Terminal Height", 100, 600, st.session_state.terminal_height, 50)
+        if terminal_height != st.session_state.terminal_height:
+            st.session_state.terminal_height = terminal_height
+            st.experimental_rerun()
+            
         # Agent configuration
         st.subheader("Agent Configuration")
         if 'agent' in st.session_state:
@@ -193,9 +360,8 @@ if __name__ == "__main__":
     main()
 
 # Add a footer with app information
-st.markdown("---")
 st.markdown("""
-<div style="text-align: center; color: #888;">
+<div style="text-align: center; color: #888; padding-bottom: 350px;">
     <p>AI-Powered IDE with Hierarchical Task Decomposition</p>
     <p>Built with Streamlit and Google Gemini</p>
 </div>
