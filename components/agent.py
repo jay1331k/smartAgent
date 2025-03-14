@@ -103,6 +103,7 @@ class Agent:
                 if st.button("Show/Hide Prompt", key=f"show_prompt_{node.node_id}"):
                     st.code(prompt, language="text")
 
+            success = False
             with output_container:
                 for attempt in range(MAX_RETRIES):
                     try:
@@ -112,6 +113,9 @@ class Agent:
                                 generation_config=self.llm_config
                             )
                             llm_output = response.text
+                        
+                        if not llm_output or llm_output.strip() == "":
+                            raise ValueError("Empty response from LLM")
                         
                         st.success("Response generated successfully")
                         # Use a container instead of an expander
@@ -124,38 +128,54 @@ class Agent:
 
                         node.output = llm_output
                         
-                        # Extract code from JSON output
+                        # Process the LLM output to extract subtasks
                         node.process_llm_output(llm_output)
                         
-                        # Force extraction of code from output even if it's in JSON
-                        self._extract_code_from_json_output(node)
-
-                        # Check constraints
+                        # Check if we got any valid results
+                        if node.child_ids or node.retrieve_from_memory("result") or node.retrieve_from_memory("code_files"):
+                            success = True
+                        else:
+                            # Try additional extraction methods
+                            self._extract_code_from_json_output(node)
+                            if node.retrieve_from_memory("code_files"):
+                                success = True
+                        
+                        # Check constraints - if failed, continue trying
                         if not st.session_state.attention_mechanism.check_constraints(node):
-                            return
+                            success = False
+                            continue
+                        
                         break
-
                     except Exception as e:
+                        st.error(f"Error in attempt {attempt+1}: {str(e)}")
                         if handle_node_retryable_error(node, attempt, e):
                             return
+                
+                # If we've exhausted all attempts but didn't succeed, mark as failed
+                if not success and node.status != STATUS_FAILED:
+                    node.status = STATUS_FAILED
+                    node.error_message = "Failed to process LLM output after multiple attempts"
+                    st.error("All attempts failed. Please try regenerating the node.")
+                    return
 
             # Process code in output in a separate container
-            with code_container:
-                self._process_code_in_output(node, node.output)
+            if success:
+                with code_container:
+                    self._process_code_in_output(node, node.output)
 
-            if node.status == STATUS_RUNNING:
-                node.status = STATUS_COMPLETED
-                if not node.child_ids:
-                    st.session_state.attention_mechanism.summarize_node(node)
-                    
-                # If root node, show the task decomposition
-                if node.node_id == st.session_state.root_node_id and node.child_ids:
-                    st.write("**Task decomposed into the following subtasks:**")
-                    for i, child_id in enumerate(node.child_ids):
-                        if child_id in st.session_state.node_lookup:
-                            child_node = st.session_state.node_lookup[child_id]
-                            task = child_node.retrieve_from_memory("task")
-                            st.write(f"{i+1}. {task}")
+                if node.status == STATUS_RUNNING:
+                    node.status = STATUS_COMPLETED
+                    if not node.child_ids:
+                        st.session_state.attention_mechanism.summarize_node(node)
+                        
+                    # If root node, show the task decomposition
+                    if node.node_id == st.session_state.root_node_id and node.child_ids:
+                        st.write("**Task decomposed into the following subtasks:**")
+                        for i, child_id in enumerate(node.child_ids):
+                            if child_id in st.session_state.node_lookup:
+                                child_node = st.session_state.node_lookup[child_id]
+                                task = child_node.retrieve_from_memory("task")
+                                st.write(f"{i+1}. {task}")
 
     def _process_code_in_output(self, node: Node, output: str) -> None:
         """Process and extract code from the node output"""
@@ -307,7 +327,7 @@ class Agent:
     
     def save_session(self, filename: str) -> None:
         data = {
-            "node_lookup": {node_id: node.__dict__ for node_id, node in st.session_state.node_lookup.items()},
+            "node_lookup": {node_id: {k: v for k, v in node.__dict__.items() if k != 'local_memory'} for node_id, node in st.session_state.node_lookup.items()},
             "attention_mechanism": {
                 "dependency_graph": st.session_state.attention_mechanism.dependency_graph,
                 "constraints": st.session_state.attention_mechanism.constraints,
