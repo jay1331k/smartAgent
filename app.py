@@ -12,7 +12,8 @@ from components.node import Node
 from components.file_explorer import FileExplorer
 from components.terminal import Terminal, ClineInterface
 from components.editor import Editor
-from components.utils import initialize_gemini_api, get_model, STATUS_PENDING, STATUS_COMPLETED
+from components.graph_view import GraphView
+from components.utils import initialize_gemini_api, get_model, STATUS_PENDING, STATUS_COMPLETED, STATUS_RUNNING, STATUS_FAILED
 
 # Try to import any useful classes/functions from agent folder if they exist
 try:
@@ -33,8 +34,6 @@ def main():
     .main {
         padding-bottom: 250px !important; /* Make space for the terminal */
     }
-    
-    
     
     /* Terminal resize handle */
     .terminal-handle {
@@ -80,6 +79,32 @@ def main():
         color: #888;
         font-size: 18px;
         margin-top: -5px;
+    }
+    
+    /* Node status colors */
+    .node-pending {
+        background-color: #f8f9fa;
+        border-left: 5px solid #6c757d;
+    }
+    .node-running {
+        background-color: #fff3cd;
+        border-left: 5px solid #ffc107;
+    }
+    .node-completed {
+        background-color: #d1e7dd;
+        border-left: 5px solid #198754;
+    }
+    .node-failed {
+        background-color: #f8d7da;
+        border-left: 5px solid #dc3545;
+    }
+    
+    /* Node card style */
+    .node-card {
+        padding: 10px;
+        margin-bottom: 10px;
+        border-radius: 5px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
     
     /* Hide default Streamlit elements that disrupt layout */
@@ -167,66 +192,304 @@ def main():
                 )
                 st.session_state.agent = agent
                 agent.setup_agent()
+                
+                # Initialize graph view
+                st.session_state.graph_view = GraphView()
             
             # Task input and running
             if 'root_node_id' not in st.session_state:
                 with st.form("task_form"):
                     task_description = st.text_area("Enter Task Description:", height=100)
-                    initial_constraint = st.text_input("Initial Constraint (optional):")
+                    
+                    # Add constraints input with examples
+                    st.write("Add constraints (optional):  ")
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        add_format_constraint = st.checkbox("Require JSON")
+                    
+                    with col2:
+                        add_code_constraint = st.checkbox("Generate code")
+                        
+                    custom_constraint = st.text_input("Custom constraint")
+                    
                     submitted = st.form_submit_button("Run Task")
                     
                     if submitted and task_description:
-                        initial_constraints = [initial_constraint] if initial_constraint else None
-                        st.session_state.agent.run(task_description, initial_constraints)
+                        # Build constraints list
+                        constraints = []
+                        if add_format_constraint:
+                            constraints.append("format:json")
+                        if add_code_constraint:
+                            constraints.append("code:true")
+                        if custom_constraint:
+                            constraints.append(custom_constraint)
+                        
+                        # Run agent with constraints
+                        st.session_state.agent.run(task_description, constraints if constraints else None)
                         st.experimental_rerun()
-            # Display task tree
+            # Display task tree with improved graph view
             else:
-                st.subheader("Task Tree")
+                # Add view toggle
+                view_type = st.radio("View Type:", ["Task Tree", "Graph View"], horizontal=True)
                 
-                # Add toggle for graph view
-                if 'show_graph' in st.session_state and st.session_state['show_graph']:
-                    from components.ui import render_node_graph
-                    root_to_visualize = st.session_state.get('graph_root_id', st.session_state.root_node_id)
-                    render_node_graph(root_to_visualize)
-                else:
-                    from components.ui import render_node_tree
+                if view_type == "Graph View":
+                    # Use the GraphView component for visualization
+                    selected_node_id = st.session_state.get('selected_node_id')
+                    
+                    try:
+                        # Try to render the graph visualization
+                        st.session_state.graph_view.render_graph(
+                            st.session_state.node_lookup,
+                            st.session_state.root_node_id,
+                            selected_node_id
+                        )
+                    except Exception as e:
+                        # If graph rendering fails, show a simple tree view instead
+                        st.error(f"Error rendering graph: {str(e)}. Using simple tree view instead.")
+                        st.session_state.graph_view.render_simple_tree(
+                            st.session_state.node_lookup,
+                            st.session_state.root_node_id,
+                            selected_node_id
+                        )
+                    
+                    # If a node is selected, show its details
+                    if selected_node_id and selected_node_id in st.session_state.node_lookup:
+                        node = st.session_state.node_lookup[selected_node_id]
+                        
+                        # Display node details
+                        with st.expander(f"Selected Node: {node.retrieve_from_memory('task')}", expanded=True):
+                            st.write(f"**Status:** {node.status}")
+                            
+                            if node.status == STATUS_PENDING:
+                                if st.button("Execute Node", key=f"exec_{node.node_id}"):
+                                    st.session_state.agent.agentFlow("execute", node)
+                                    st.experimental_rerun()
+                            
+                            # Show output if available
+                            if node.output:
+                                st.write("**Output:**")
+                                st.text(node.output[:500] + ("..." if len(node.output) > 500 else ""))
+                                
+                                # Process code in output
+                                code_files = node.extract_code_files()
+                                if code_files:
+                                    st.write("**Generated Code Files:**")
+                                    for filepath, content in code_files.items():
+                                        if st.button(f"Open in Editor: {filepath}", key=f"open_{node.node_id}_{filepath}"):
+                                            # Set active file in editor
+                                            st.session_state.active_file = filepath
+                                            st.session_state.file_content = content
+                                            st.experimental_rerun()
+                else:  # Task Tree view
+                    # Hierarchical tree display
+                    st.subheader("Task Hierarchy")
+                    
+                    # Function to recursively render the tree
+                    def render_node_tree(node_id, indent=0):
+                        if node_id not in st.session_state.node_lookup:
+                            return
+                            
+                        node = st.session_state.node_lookup[node_id]
+                        task = node.retrieve_from_memory("task") or f"Node {node_id[:8]}"
+                        
+                        # Determine CSS class based on status
+                        status_class = f"node-{node.status}"
+                        
+                        # Status emoji
+                        status_emoji = {
+                            STATUS_PENDING: "🔘",
+                            STATUS_RUNNING: "⏳",
+                            STATUS_COMPLETED: "✅",
+                            STATUS_FAILED: "❌"
+                        }.get(node.status, "⚪")
+                        
+                        # Node container with appropriate styling
+                        st.markdown(f'<div class="node-card {status_class}" style="margin-left: {indent*20}px">', unsafe_allow_html=True)
+                        
+                        # Node header with task and status
+                        col1, col2 = st.columns([4, 1])
+                        with col1:
+                            st.write(f"**{status_emoji} {task}**")
+                        with col2:
+                            if st.button("Select", key=f"select_{node_id}"):
+                                st.session_state.selected_node_id = node_id
+                                st.session_state.agent.agentFlow("select", node)
+                                st.experimental_rerun()
+                        
+                        # Node children (recursively)
+                        for child_id in node.child_ids:
+                            render_node_tree(child_id, indent + 1)
+                            
+                        st.markdown('</div>', unsafe_allow_html=True)
+                    
+                    # Start rendering from root node
                     render_node_tree(st.session_state.root_node_id)
                 
-                # Show graph view button at top level
-                if not st.session_state.get('show_graph', False) and st.button("Show Full Graph"):
-                    st.session_state['show_graph'] = True
-                    st.session_state['graph_root_id'] = st.session_state.root_node_id
-                    st.experimental_rerun()
+                # Selected node details (common for both views)
+                if 'selected_node_id' in st.session_state and st.session_state.selected_node_id:
+                    selected_node_id = st.session_state.selected_node_id
+                    if selected_node_id in st.session_state.node_lookup:
+                        node = st.session_state.node_lookup[selected_node_id]
+                        
+                        st.markdown("<hr>", unsafe_allow_html=True)
+                        st.subheader("Node Details")
+                        
+                        # Put basic info and actions in a more compact layout
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            st.write(f"**Status:** {node.status}")
+                        with col2:
+                            st.write(f"**Task:** {node.retrieve_from_memory('task')}")
+                        with col3:
+                            st.write(f"**Depth:** {node.depth}")
+                        
+                        # Actions in a single row
+                        action_cols = st.columns(3)
+                        
+                        with action_cols[0]:
+                            # Execute button with spinner
+                            if node.status == STATUS_PENDING:
+                                if st.button("Execute", key=f"execute_detail_{node.node_id}"):
+                                    with st.spinner("Executing node..."):
+                                        # Use a container to prevent layout shifts
+                                        execution_result = st.container()
+                                        with execution_result:
+                                            st.session_state.agent.agentFlow("execute", node)
+                                    st.experimental_rerun()
+                        
+                        with action_cols[1]:
+                            # Regenerate with guidance in a more compact way
+                            if node.status in [STATUS_COMPLETED, STATUS_FAILED]:
+                                with st.expander("Regenerate with guidance", expanded=False):
+                                    regeneration_guidance = st.text_area(
+                                        "Guidance:", 
+                                        key=f"regen_guidance_{node.node_id}"
+                                    )
+                                    if st.button("Regenerate", key=f"regenerate_detail_{node.node_id}"):
+                                        with st.spinner("Regenerating..."):
+                                            st.session_state.agent.agentFlow("regenerate", node, regeneration_guidance)
+                                        st.experimental_rerun()
+                        
+                        with action_cols[2]:
+                            # Delete button
+                            if st.button("Delete", key=f"delete_detail_{node.node_id}"):
+                                st.session_state.agent.agentFlow("delete", node)
+                                if node.node_id == st.session_state.selected_node_id:
+                                    st.session_state.selected_node_id = None
+                                st.experimental_rerun()
+                        
+                        # Show output using tabs instead of expanders
+                        if node.output:
+                            # Get code files from node
+                            code_files = node.extract_code_files()
+                            
+                            # Create tab labels
+                            tab_labels = ["Output"]
+                            if code_files:
+                                tab_labels.append(f"Code Files ({len(code_files)})")
+                            
+                            # Create tabs
+                            output_tabs = st.tabs(tab_labels)
+                            
+                            # Output tab
+                            with output_tabs[0]:
+                                with st.container():
+                                    st.code(node.output)
+                            
+                            # Code files tab (if any)
+                            if code_files and len(output_tabs) > 1:
+                                with output_tabs[1]:
+                                    # Create file selector
+                                    file_paths = list(code_files.keys())
+                                    selected_file = st.selectbox(
+                                        "Select file:", 
+                                        options=file_paths,
+                                        key=f"file_select_{node.node_id}"
+                                    )
+                                    
+                                    if selected_file:
+                                        content = code_files[selected_file]
+                                        language = selected_file.split('.')[-1] if '.' in selected_file else 'text'
+                                        st.code(content, language=language)
+                                        
+                                        # File actions
+                                        col1, col2 = st.columns(2)
+                                        with col1:
+                                            if st.button("Save File", key=f"save_code_{node.node_id}"):
+                                                try:
+                                                    # Create directory if needed
+                                                    directory = os.path.dirname(selected_file)
+                                                    if directory:
+                                                        os.makedirs(directory, exist_ok=True)
+                                                    
+                                                    # Save file
+                                                    with open(selected_file, 'w', encoding='utf-8') as f:
+                                                        f.write(content)
+                                                    st.success(f"File saved: {selected_file}")
+                                                except Exception as e:
+                                                    st.error(f"Error saving file: {str(e)}")
+                                        
+                                        with col2:
+                                            if st.button("Open in Editor", key=f"open_code_{node.node_id}"):
+                                                st.session_state.active_file = selected_file
+                                                st.session_state.file_content = content
+                                                st.experimental_rerun()
+                        
+                        # Add child node option in a more compact layout
+                        if node.status == STATUS_COMPLETED:
+                            with st.expander("Add Child Task", expanded=False):
+                                new_task = st.text_area("Task description:", key=f"new_task_{node.node_id}")
+                                if st.button("Add Task", key=f"add_task_{node.node_id}"):
+                                    if new_task.strip():
+                                        with st.spinner("Creating child node..."):
+                                            child_node = st.session_state.agent.create_child_node(
+                                                node, 
+                                                new_task,
+                                                node.depth + 1
+                                            )
+                                            st.session_state.selected_node_id = child_node.node_id
+                                        st.experimental_rerun()
+                                    else:
+                                        st.error("Please enter a task description.")
                 
-                # New task button
-                if st.button("Start New Task"):
-                    st.session_state.agent.reset_agent()
-                    st.experimental_rerun()
-                
-                # Save/Load session
+                # Session controls
+                st.markdown("<hr>", unsafe_allow_html=True)
                 col1, col2 = st.columns(2)
+                
                 with col1:
-                    save_filename = st.text_input("Save session as:", value="agent_session.json")
-                    if st.button("Save Session"):
-                        st.session_state.agent.save_session(save_filename)
-                        st.success(f"Session saved to {save_filename}")
+                    if st.button("New Task", key="new_task_btn"):
+                        st.session_state.agent.reset_agent()
+                        st.session_state.selected_node_id = None
+                        st.experimental_rerun()
                 
                 with col2:
-                    uploaded_file = st.file_uploader("Load session from file:", type="json")
-                    if uploaded_file and st.button("Load Session"):
-                        from tempfile import NamedTemporaryFile
-                        with NamedTemporaryFile(delete=False, suffix=".json") as tmp:
-                            tmp.write(uploaded_file.getvalue())
-                            tmp_path = tmp.name
+                    if 'show_save_load' not in st.session_state:
+                        st.session_state.show_save_load = False
                         
-                        try:
-                            st.session_state.agent.load_session(tmp_path)
-                            st.success("Session loaded successfully")
+                    if st.button("Save/Load Session", key="save_load_toggle"):
+                        st.session_state.show_save_load = not st.session_state.show_save_load
+                        st.experimental_rerun()
+                
+                # Show save/load controls if toggled
+                if st.session_state.get('show_save_load', False):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        save_filename = st.text_input("Save session as:", "agent_session.json")
+                        if st.button("Save"):
+                            st.session_state.agent.save_session(save_filename)
+                            st.success(f"Session saved to {save_filename}")
+                    
+                    with col2:
+                        load_filename = st.text_input("Load session from:", "agent_session.json")
+                        if st.button("Load") and os.path.exists(load_filename):
+                            st.session_state.agent.load_session(load_filename)
+                            st.success(f"Session loaded from {load_filename}")
                             st.experimental_rerun()
-                        except Exception as e:
-                            st.error(f"Error loading session: {str(e)}")
-                        finally:
-                            os.unlink(tmp_path)
+                        elif st.button("Load") and not os.path.exists(load_filename):
+                            st.error(f"File not found: {load_filename}")
             
             # Close the scrollable content
             st.markdown('</div>', unsafe_allow_html=True)
@@ -240,6 +503,28 @@ def main():
             
             # Scrollable content area for editor
             st.markdown('<div class="scrollable-content">', unsafe_allow_html=True)
+            
+            # Check if we need to create/update a file from agent output
+            if 'active_file' in st.session_state and 'file_content' in st.session_state:
+                active_file = st.session_state.active_file
+                file_content = st.session_state.file_content
+                
+                # Create directory if it doesn't exist
+                directory = os.path.dirname(active_file)
+                if directory and not os.path.exists(directory):
+                    os.makedirs(directory, exist_ok=True)
+                
+                # Pre-populate editor with file content
+                st.session_state.editor_content = file_content
+                
+                # Show save button for the generated file
+                if st.button("Save Generated File", key=f"save_generated_{active_file}"):
+                    try:
+                        with open(active_file, 'w', encoding='utf-8') as f:
+                            f.write(file_content)
+                        st.success(f"File saved: {active_file}")
+                    except Exception as e:
+                        st.error(f"Error saving file: {str(e)}")
             
             editor = Editor()
             editor.display()

@@ -6,6 +6,9 @@ from typing import Dict, List, Optional, Any, Callable
 
 from components.utils import parse_constraint, STATUS_FAILED
 
+from components.node import Node
+
+
 class AttentionMechanism:
     def __init__(self) -> None:
         self.dependency_graph: Dict[str, List[Optional[str]]] = {}
@@ -14,6 +17,7 @@ class AttentionMechanism:
             "format": self._check_json_format,
             "contains": self._check_contains_word,
             "max_length": self._check_max_length,
+            "code": self._check_has_code,
         }
 
     def track_dependencies(self, parent_node_id: Optional[str], current_node_id: str) -> None:
@@ -141,6 +145,18 @@ Result: {node.output}
             node.status = STATUS_FAILED
             node.error_message = f"Constraint violated: Invalid max length value '{constraint_value}'"
             return False
+
+    def _check_has_code(self, constraint_value: str, node: "Node") -> bool:
+        """Checks if the output has code blocks in the expected format."""
+        # Look for code blocks in markdown format: ```language ... ```
+        code_blocks = re.findall(r'```(\w*)\n(.*?)\n```', node.output, re.DOTALL)
+        
+        if not code_blocks:
+            node.status = STATUS_FAILED
+            node.error_message = f"Constraint violated: Output must contain code blocks. No code blocks found."
+            return False
+            
+        return True
 
     def check_constraints(self, node: "Node") -> bool:
         for constraint in self.get_constraints(node.node_id):

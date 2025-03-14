@@ -8,6 +8,7 @@ from components.memory import GlobalMemory, LocalMemory
 from components.attention_mechanism import AttentionMechanism
 from components.node import Node
 from components.utils import handle_node_retryable_error, MAX_DEPTH, MAX_RETRIES, RETRY_DELAY, GLOBAL_CONTEXT_SUMMARY_INTERVAL, STATUS_PENDING, STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED
+from components.file_manager import FileManager
 
 class Agent:
     def __init__(self, llm, llm_config, global_context: str = "This agent decomposes complex tasks.") -> None:
@@ -19,11 +20,14 @@ class Agent:
         self.execution_count = 0
         self.max_depth = MAX_DEPTH
         self.global_context_summary_interval = GLOBAL_CONTEXT_SUMMARY_INTERVAL
+        self.file_manager = FileManager()
 
     def run(self, task_description: str, initial_constraints: Optional[list[str]] = None) -> None:
         self.reset_agent()
         root_node = self.create_root_node(task_description, initial_constraints)
         st.session_state.root_node_id = root_node.node_id
+        # Automatically execute the root node to start the task decomposition
+        self.agentFlow("execute", root_node)
 
     def reset_agent(self) -> None:
         st.session_state.node_lookup = {}
@@ -40,6 +44,7 @@ class Agent:
         self.attention_mechanism.add_constraint_checker("format", self.attention_mechanism._check_json_format)
         self.attention_mechanism.add_constraint_checker("contains", self.attention_mechanism._check_contains_word)
         self.attention_mechanism.add_constraint_checker("max_length", self.attention_mechanism._check_max_length)
+        self.attention_mechanism.add_constraint_checker("code", self.attention_mechanism._check_has_code)
         st.session_state.attention_mechanism = self.attention_mechanism
         st.session_state.agent = self
         st.session_state.llm = self.llm
@@ -75,44 +80,109 @@ class Agent:
             self._regenerate_node(node, regeneration_guidance)
         elif action == "delete":
             self.delete_node_and_children(node)
+        elif action == "select":
+            self._select_node(node)
         else:
             raise ValueError(f"Invalid action: {action}")
 
     def _execute_node(self, node: Node) -> None:
-        node.status = STATUS_RUNNING
-        prompt = node.build_prompt()
+        # Show loading spinner
+        with st.spinner(f"Executing node: {node.retrieve_from_memory('task')}"):
+            node.status = STATUS_RUNNING
+            prompt = node.build_prompt()
+            
+            # Create separate containers for different sections to avoid UI jumping
+            prompt_container = st.container()
+            output_container = st.container()
+            code_container = st.container()
+            
+            with prompt_container:
+                st.markdown("### Executing Node")
+                st.write("**Prompt sent to LLM:**")
+                with st.expander("View prompt", expanded=False):
+                    st.code(prompt, language="text")
+
+            with output_container:
+                for attempt in range(MAX_RETRIES):
+                    try:
+                        with st.spinner("Generating response..."):
+                            response = self.llm.generate_content(
+                                prompt,
+                                generation_config=self.llm_config
+                            )
+                            llm_output = response.text
+                        
+                        st.success("Response generated successfully")
+                        with st.expander("View raw LLM output", expanded=False):
+                            st.code(llm_output, language="text")
+
+                        node.output = llm_output
+                        node.process_llm_output(llm_output)
+
+                        # Check constraints
+                        if not st.session_state.attention_mechanism.check_constraints(node):
+                            return
+                        break
+
+                    except Exception as e:
+                        if handle_node_retryable_error(node, attempt, e):
+                            return
+
+            # Process code in output in a separate container
+            with code_container:
+                self._process_code_in_output(node, node.output)
+
+            if node.status == STATUS_RUNNING:
+                node.status = STATUS_COMPLETED
+                if not node.child_ids:
+                    st.session_state.attention_mechanism.summarize_node(node)
+                    
+                # If root node, show the task decomposition
+                if node.node_id == st.session_state.root_node_id and node.child_ids:
+                    st.write("**Task decomposed into the following subtasks:**")
+                    for i, child_id in enumerate(node.child_ids):
+                        if child_id in st.session_state.node_lookup:
+                            child_node = st.session_state.node_lookup[child_id]
+                            task = child_node.retrieve_from_memory("task")
+                            st.write(f"{i+1}. {task}")
+
+    def _process_code_in_output(self, node: Node, output: str) -> None:
+        """Process and extract code from the node output"""
+        # Containerize the code processing to prevent UI layout issues
+        code_files = node.extract_code_files()
         
-        # FIXED: Using st.write and st.code instead of expanders to avoid nesting issues
-        st.write("**Executing prompt:**")
-        st.code(prompt, language="text")
-
-        for attempt in range(MAX_RETRIES):
-            try:
-                response = self.llm.generate_content(
-                    prompt,
-                    generation_config=self.llm_config
-                )
-                llm_output = response.text
+        if code_files:
+            st.write("### Generated Code Files")
+            st.write(f"Found {len(code_files)} code file(s)")
+            
+            # Create tabs for code files
+            if len(code_files) > 0:
+                file_names = list(code_files.keys())
+                tabs = st.tabs(file_names)
                 
-                # FIXED: Using st.write and st.code instead of expanders
-                st.write(f"**Raw LLM Output (Attempt {attempt + 1}):**")
-                st.code(llm_output, language="text")
-
-                node.output = llm_output
-                node.process_llm_output(llm_output)
-
-                if not st.session_state.attention_mechanism.check_constraints(node):
-                    return
-                break
-
-            except Exception as e:
-                if handle_node_retryable_error(node, attempt, e):
-                    return
-
-        if node.status == STATUS_RUNNING:
-            node.status = STATUS_COMPLETED
-            if not node.child_ids:
-                st.session_state.attention_mechanism.summarize_node(node)
+                for i, (filepath, content) in enumerate(code_files.items()):
+                    with tabs[i]:
+                        language = self.file_manager.get_language_from_extension(filepath)
+                        st.code(content, language=language)
+                        
+                        # Store the code in node's memory
+                        node.store_in_memory("code_files", code_files)
+                        
+                        # Add save button
+                        col1, col2 = st.columns([1, 3])
+                        with col1:
+                            if st.button("Save File", key=f"save_{node.node_id}_{filepath}"):
+                                success = self.file_manager.save_file(filepath, content)
+                                if success:
+                                    st.success(f"File saved: {filepath}")
+                                else:
+                                    st.error(f"Failed to save file: {filepath}")
+                        with col2:
+                            if st.button("Open in Editor", key=f"editor_{node.node_id}_{filepath}"):
+                                # Set active file in editor
+                                st.session_state.active_file = filepath
+                                st.session_state.file_content = content
+                                st.experimental_rerun()
 
     def _regenerate_node(self, node: Node, regeneration_guidance: str) -> None:
         node.status = STATUS_PENDING
@@ -124,7 +194,30 @@ class Agent:
             if child_id in st.session_state.node_lookup:
                 self.delete_node_and_children(st.session_state.node_lookup[child_id])
         node.child_ids = []
+        # Re-execute the node
+        self._execute_node(node)
 
+    def _select_node(self, node: Node) -> None:
+        """Handle node selection for continuation or detailed execution"""
+        st.session_state.selected_node_id = node.node_id
+        if node.status == STATUS_PENDING:
+            self._execute_node(node)
+        elif node.status == STATUS_COMPLETED and node.child_ids:
+            # Show children and allow selection
+            st.write(f"Selected node: {node.retrieve_from_memory('task')}")
+            st.write("This node has been completed. You can select a child node to continue.")
+        else:
+            st.write(f"Selected node: {node.retrieve_from_memory('task')}")
+            st.write("What would you like to do with this node?")
+            
+            # Add options for continuing/extending this node
+            new_task = st.text_area("Specify a follow-up task or further details:", key=f"follow_up_{node.node_id}")
+            if st.button("Continue with this detail", key=f"cont_{node.node_id}"):
+                # Create a new child node with the specified task
+                if new_task.strip():
+                    new_node = self.create_child_node(node, new_task, node.depth + 1)
+                    self._execute_node(new_node)
+    
     def save_session(self, filename: str) -> None:
         data = {
             "node_lookup": {node_id: node.__dict__ for node_id, node in st.session_state.node_lookup.items()},
