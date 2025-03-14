@@ -145,7 +145,7 @@ Code requirements:
             if code_files:
                 self.store_in_memory("code_files", code_files)
             
-            # Then try to parse JSON from the output
+            # Try to parse JSON from the output
             parsed_output = extract_json_from_text(llm_output)
             
             if parsed_output:
@@ -158,13 +158,21 @@ Code requirements:
                         elif isinstance(subtask, dict) and "task_description" in subtask:
                             # Subtask with description
                             self._create_child_node(subtask["task_description"])
+                    
+                    # Check for code in the JSON
+                    self._extract_code_from_json(parsed_output)
+                    
                 # Handle result in the output
                 elif "result" in parsed_output:
                     self.store_in_memory("result", parsed_output["result"])
+                    # Check for code in the result
+                    self._extract_code_from_json(parsed_output)
                 # Handle other parsed output
                 else:
                     # Store the entire parsed output if no specific keys are found
                     self.store_in_memory("result", parsed_output)
+                    # Check for code in the JSON
+                    self._extract_code_from_json(parsed_output)
             else:
                 # If no JSON found, check if we already found code blocks
                 if not code_files:
@@ -174,6 +182,81 @@ Code requirements:
         except Exception as e:
             self.status = STATUS_FAILED
             self.error_message = f"Error processing LLM output: {str(e)}"
+        
+    def _extract_code_from_json(self, json_data: Dict[str, Any]) -> None:
+        """Extract code from JSON fields and store as code files."""
+        if not json_data:
+            return
+            
+        code_files = {}
+        
+        # Look for code fields in any part of the JSON structure
+        def search_for_code(obj, prefix=""):
+            if isinstance(obj, dict):
+                for key, value in obj.items():
+                    key_lower = key.lower()
+                    # Check if this is a code field
+                    if isinstance(value, str) and ('code' in key_lower or 'implementation' in key_lower or key_lower.endswith('_py') or key_lower.endswith('_js')):
+                        # Generate a filename based on the key
+                        ext = 'py' if 'python' in key_lower or key_lower.endswith('_py') else 'js'
+                        if 'html' in key_lower:
+                            ext = 'html'
+                        elif 'css' in key_lower:
+                            ext = 'css'
+                        filename = f"{key.lower().replace('_code', '').replace('code_', '')}.{ext}"
+                        if prefix:
+                            filename = f"{prefix}_{filename}"
+                        code_files[filename] = value
+                    elif isinstance(value, (dict, list)):
+                        new_prefix = f"{prefix}_{key}" if prefix else key
+                        search_for_code(value, new_prefix)
+            elif isinstance(obj, list):
+                for i, item in enumerate(obj):
+                    search_for_code(item, f"{prefix}_{i}" if prefix else str(i))
+        
+        # Start recursive search
+        search_for_code(json_data)
+        
+        # Store found code files
+        if code_files:
+            current_files = self.retrieve_from_memory("code_files") or {}
+            current_files.update(code_files)
+            self.store_in_memory("code_files", current_files)
+
+    def extract_code_files(self) -> Dict[str, str]:
+        """Extract code files from the output if present."""
+        result = {}
+        
+        # Pattern 1: Properly formatted code blocks with filepath comments
+        pattern1 = r'```(?:python|javascript|html|css)\n# filepath: (.*?)\n(.*?)```'
+        matches1 = re.findall(pattern1, self.output, re.DOTALL)
+        for filepath, content in matches1:
+            result[filepath] = content.strip()
+        
+        # Pattern 2: Code blocks without filepath comments
+        pattern2 = r'```(?:python|javascript|html|css)?\n(.*?)```'
+        matches2 = re.findall(pattern2, self.output, re.DOTALL)
+        for i, content in enumerate(matches2):
+            result[f"code_block_{i}.py"] = content.strip()
+        
+        # Also check for any code in memory (e.g., extracted from JSON)
+        memory_code_files = self.retrieve_from_memory("code_files")
+        if memory_code_files and isinstance(memory_code_files, dict):
+            result.update(memory_code_files)
+        
+        # Log finding to help with debugging
+        if result:
+            print(f"Found {len(result)} code files: {list(result.keys())}")
+        
+        return result
+
+    def save_state(self, directory: str = "node_memory") -> None:
+        """Save the node's state and memory to disk."""
+        self.local_memory.save_to_disk(directory)
+
+    def load_state(self, directory: str = "node_memory") -> bool:
+        """Load the node's state and memory from disk."""
+        return self.local_memory.load_from_disk(directory)
 
     def _create_child_node(self, task_description: str) -> None:
         """Creates a child node and adds it to the tree.
@@ -183,36 +266,10 @@ Code requirements:
         if 'agent' not in st.session_state:
             self.error_message = "Agent not available to create child node"
             return
-            
+        
         # Create child node through the agent to ensure proper tracking
         st.session_state.agent.create_child_node(
             parent_node=self, 
-            task_description=task_description,
+            task_description=task_description, 
             depth=self.depth + 1
         )
-
-    def save_state(self, directory: str = "node_memory") -> None:
-        """Save the node's state and memory to disk."""
-        self.local_memory.save_to_disk(directory)
-    
-    def load_state(self, directory: str = "node_memory") -> bool:
-        """Load the node's state and memory from disk."""
-        return self.local_memory.load_from_disk(directory)
-        
-    def extract_code_files(self) -> Dict[str, str]:
-        """Extract code files from the output if present."""
-        from components.utils import extract_code_with_filenames
-        
-        # Use the utility function that handles various formats
-        extracted_data = extract_code_with_filenames(self.output)
-        
-        # Convert to simple filepath -> content mapping
-        result = {}
-        for filepath, info in extracted_data.items():
-            result[filepath] = info["content"]
-        
-        # Log finding to help with debugging
-        if result:
-            print(f"Found {len(result)} code files: {list(result.keys())}")
-        
-        return result

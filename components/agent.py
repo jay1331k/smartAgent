@@ -91,7 +91,7 @@ class Agent:
             node.status = STATUS_RUNNING
             prompt = node.build_prompt()
             
-            # Create separate containers for different sections to avoid UI jumping
+            # Create separate containers for different sections without using expanders
             prompt_container = st.container()
             output_container = st.container()
             code_container = st.container()
@@ -99,7 +99,8 @@ class Agent:
             with prompt_container:
                 st.markdown("### Executing Node")
                 st.write("**Prompt sent to LLM:**")
-                with st.expander("View prompt", expanded=False):
+                # Use a button to show the prompt instead of an expander
+                if st.button("Show/Hide Prompt", key=f"show_prompt_{node.node_id}"):
                     st.code(prompt, language="text")
 
             with output_container:
@@ -113,11 +114,21 @@ class Agent:
                             llm_output = response.text
                         
                         st.success("Response generated successfully")
-                        with st.expander("View raw LLM output", expanded=False):
-                            st.code(llm_output, language="text")
+                        # Use a container instead of an expander
+                        st.markdown("**LLM Output:**")
+                        output_viewer = st.container()
+                        with output_viewer:
+                            # Add button to toggle showing output
+                            if st.button("Show/Hide Output", key=f"show_output_{node.node_id}"):
+                                st.code(llm_output, language="text")
 
                         node.output = llm_output
+                        
+                        # Extract code from JSON output
                         node.process_llm_output(llm_output)
+                        
+                        # Force extraction of code from output even if it's in JSON
+                        self._extract_code_from_json_output(node)
 
                         # Check constraints
                         if not st.session_state.attention_mechanism.check_constraints(node):
@@ -206,6 +217,59 @@ class Agent:
                 st.session_state.active_file = selected_file
                 st.session_state.file_content = content
                 st.experimental_rerun()
+
+    def _extract_code_from_json_output(self, node: Node) -> None:
+        """Extract code from JSON output and create files for it."""
+        try:
+            # Try to parse the output as JSON
+            import json
+            try:
+                output_json = json.loads(node.output)
+            except json.JSONDecodeError:
+                # Try to extract JSON part from the text
+                import re
+                json_match = re.search(r'```json\s*([\s\S]*?)\s*```', node.output)
+                if json_match:
+                    try:
+                        output_json = json.loads(json_match.group(1))
+                    except:
+                        return
+                else:
+                    return
+                
+            # Look for code in JSON fields
+            code_files = {}
+            
+            # Common patterns for code fields in JSON
+            if "code" in output_json and isinstance(output_json["code"], str):
+                # Simple code field - generate a default filename
+                extension = "py" if "python" in node.output.lower() else "js"
+                code_files[f"script.{extension}"] = output_json["code"]
+                
+            # Check for files/implementations array
+            for field_name in ["files", "implementation", "code_files"]:
+                if field_name in output_json and isinstance(output_json[field_name], list):
+                    for i, file_info in enumerate(output_json[field_name]):
+                        if isinstance(file_info, dict):
+                            # Extract filename and code from dict
+                            filename = file_info.get("filename", file_info.get("path", f"file_{i}.py"))
+                            code = file_info.get("content", file_info.get("code", ""))
+                            if code:
+                                code_files[filename] = code
+                        elif isinstance(file_info, str) and i % 2 == 0:
+                            # Check if alternating entries are filename/content pairs
+                            if i+1 < len(output_json[field_name]) and isinstance(output_json[field_name][i+1], str):
+                                code_files[file_info] = output_json[field_name][i+1]
+            
+            # Store extracted code files in memory
+            if code_files:
+                current_files = node.retrieve_from_memory("code_files") or {}
+                current_files.update(code_files)
+                node.store_in_memory("code_files", current_files)
+                
+        except Exception as e:
+            # Just log the error but don't crash
+            print(f"Error extracting code from JSON: {str(e)}")
 
     def _regenerate_node(self, node: Node, regeneration_guidance: str) -> None:
         node.status = STATUS_PENDING
