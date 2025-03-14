@@ -2,6 +2,7 @@
 streamlit>=1.29.0
 google-generativeai>=0.3.0
 python-dotenv>=1.0.0
+typing-extensions>=4.5.0
 
 # UI components
 streamlit-ace>=0.1.1
@@ -11,3 +12,6 @@ streamlit-agraph>=0.0.45
 requests>=2.31.0
 Pillow>=10.1.0
 watchdog>=3.0.0
+
+# Code formatting
+black>=23.10.0

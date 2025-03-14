@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Setting up SmartAgent environment..."
+echo "Starting SmartAgent IDE..."
 
 # Ensure required packages are installed
 pip install -r requirements.txt

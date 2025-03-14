@@ -1,0 +1,25 @@
+{
+    "node_lookup": {
+        "0dd7b0cf-3def-4668-9734-4b9286aed9df": {
+            "node_id": "0dd7b0cf-3def-4668-9734-4b9286aed9df",
+            "depth": 0,
+            "local_memory": {
+                "task": "hey please enhance this project form mee \n"
+            },
+            "parent_id": null,
+            "child_ids": [],
+            "status": "running",
+            "output": "",
+            "error_message": ""
+        }
+    },
+    "attention_mechanism": {
+        "dependency_graph": {
+            "0dd7b0cf-3def-4668-9734-4b9286aed9df": []
+        },
+        "constraints": {}
+    },
+    "root_node_id": "0dd7b0cf-3def-4668-9734-4b9286aed9df",
+    "global_memory": "This agent can break down complex tasks into manageable subtasks.",
+    "execution_count": 0
+}
