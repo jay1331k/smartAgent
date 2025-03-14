@@ -1,0 +1,16 @@
+{
+    "42865f05-cdd3-4cb8-89f0-cdc3e7923099": {
+        "file_created_todo.py": "success"
+    },
+    "d69442f8-db79-4b3a-bfc0-5bffb16c9ee0": {
+        "raw_llm_response": "```json\n{\n  \"result\": \"```python\nimport json\nimport os\n\ndef load_tasks():\n    if os.path.exists('tasks.json'):\n        with open('tasks.json', 'r') as f:\n            try:\n                tasks = json.load(f)\n            except json.JSONDecodeError:\n                tasks = []\n        return tasks\n    else:\n        return []\n\ndef save_tasks(tasks):\n    with open('tasks.json', 'w') as f:\n        json.dump(tasks, f)\n\ndef add_task(tasks):\n    task_description = input(\\\"Enter task description: \\\")\n    tasks.append({'description': task_description, 'completed': False})\n    print(\\\"Task added!\\\")\n    save_tasks(tasks)\n\ndef view_tasks(tasks):\n    if not tasks:\n        print(\\\"No tasks yet!\\\")\n        return\n    print(\\\"\\\\n--- Tasks ---\\\")\n    for index, task in enumerate(tasks):\n        status = '[x]' if task['completed'] else '[ ]'\n        print(f\\\"{index+1}. {status} {task['description']}\\\")\n    print(\\\"-------------\\\\n\\\")\n\ndef mark_completed(tasks):\n    view_tasks(tasks)\n    if not tasks:\n        return\n    try:\n        task_index = int(input(\\\"Enter the number of the task to mark as completed: \\\")) - 1\n        if 0 <= task_index < len(tasks):\n            tasks[task_index]['completed'] = True\n            print(\\\"Task marked as completed!\\\")\n            save_tasks(tasks)\n        else:\n            print(\\\"Invalid task number.\\\")\n    except ValueError:\n        print(\\\"Invalid input. Please enter a number.\\\")\n\ndef delete_task(tasks):\n    view_tasks(tasks)\n    if not tasks:\n        return\n    try:\n        task_index = int(input(\\\"Enter the number of the task to delete: \\\")) - 1\n        if 0 <= task_index < len(tasks):\n            del tasks[task_index]\n            print(\\\"Task deleted!\\\")\n            save_tasks(tasks)\n        else:\n            print(\\\"Invalid task number.\\\")\n    except ValueError:\n        print(\\\"Invalid input. Please enter a number.\\\")\n\ndef main():\n    tasks = load_tasks()\n\n    while True:\n        print(\\\"\\\\nOptions:\\\")\n        print(\\\"1. Add task\\\")\n        print(\\\"2. View tasks\\\")\n        print(\\\"3. Mark task as completed\\\")\n        print(\\\"4. Delete task\\\")\n        print(\\\"5. Exit\\\")\n\n        choice = input(\\\"Enter your choice: \\\")\n\n        if choice == '1':\n            add_task(tasks)\n        elif choice == '2':\n            view_tasks(tasks)\n        elif choice == '3':\n            mark_completed(tasks)\n        elif choice == '4':\n            delete_task(tasks)\n        elif choice == '5':\n            print(\\\"Exiting...\\\")\n            break\n        else:\n            print(\\\"Invalid choice. Please try again.\\\")\n\nif __name__ == \\\"__main__\\\":\n    main()\n```\"\n}\n```"
+    },
+    "f554c68b-5014-4741-9f8d-bd522549a967": {
+        "raw_llm_response": "Error: name 're' is not defined",
+        "raw_llm_output": "Error: name 're' is not defined"
+    },
+    "800e6a1d-51db-4b69-bc47-9ec0808b48e7": {
+        "raw_llm_response": "Error: name 're' is not defined",
+        "raw_llm_output": "Error: name 're' is not defined"
+    }
+}

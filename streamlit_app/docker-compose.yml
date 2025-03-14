@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  cline-web-ide:
+    build: .
+    container_name: cline-web-ide
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./temp:/app/temp
+    environment:
+      - DISABLE_AUTH=${DISABLE_AUTH:-false}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - FIREBASE_PRIVATE_KEY_ID=${FIREBASE_PRIVATE_KEY_ID:-}
+      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY:-}
+      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL:-}
+      - FIREBASE_CLIENT_ID=${FIREBASE_CLIENT_ID:-}
+      - FIREBASE_CERT_URL=${FIREBASE_CERT_URL:-}
+    command: python server.py --no-auth
+    # Remove --no-auth from the command above for production deployment

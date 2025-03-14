@@ -1,18 +1,21 @@
 # SMARTAGENT/agent/attention_mechanism.py
-import streamlit as st
+from typing import Dict, List, Optional, Any
 import json
-from typing import Callable, Optional
 from .utils import parse_constraint
+from .constants import STATUS_PENDING, STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED
+
+import streamlit as st
+from typing import Callable, Optional
 from .node import Node
 
 ConstraintChecker = Callable[[str, "Node"], bool]
 
 class AttentionMechanism:
     def __init__(self) -> None:
-        self.dependency_graph: dict[str, list[Optional[str]]] = {}  # dependent -> [source1, source2, ...]
-        self.constraints: dict[str, list[str]] = {}
+        self.dependency_graph: Dict[str, List[Optional[str]]] = {}  # dependent -> [source1, source2, ...]
+        self.constraints: Dict[str, List[str]] = {}
         # self.global_context: str = "This agent decomposes complex tasks into smaller sub-tasks." # Moved to agent
-        self._constraint_checkers: dict[str, ConstraintChecker] = {}
+        self._constraint_checkers: Dict[str, ConstraintChecker] = {}
         # self.execution_count: int = 0 #Moved to Agent
 
     def track_dependencies(self, parent_node_id: Optional[str], current_node_id: str) -> None:
@@ -26,7 +29,7 @@ class AttentionMechanism:
             self.dependency_graph[dependent_node_id].append(dependency_node_id)
 
 
-    def get_dependencies(self, node_id: str) -> list[Optional[str]]:
+    def get_dependencies(self, node_id: str) -> List[Optional[str]]:
         """Returns a list of nodes that the given node depends on."""
         return self.dependency_graph.get(node_id, [])
 
@@ -37,7 +40,7 @@ class AttentionMechanism:
         if constraint not in self.constraints[node_id]:
             self.constraints[node_id].append(constraint)
 
-    def get_constraints(self, node_id: str) -> list[str]:
+    def get_constraints(self, node_id: str) -> List[str]:
         return self.constraints.get(node_id, [])
 
     def update_constraint(self, node_id: str, constraint_index: int, new_constraint: str) -> None:

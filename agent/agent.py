@@ -1,23 +1,16 @@
 # SMARTAGENT/agent/agent.py
 import streamlit as st
-from .attention_mechanism import AttentionMechanism
-from .node import Node
-from .memory import LocalMemory, GlobalMemory
-from typing import Optional
 import json
 import os
+import uuid
+from typing import Optional, Dict, List
 
-
-# --- Constants ---
-MAX_RETRIES: int = 3
-RETRY_DELAY: int = 2
-LLM_MODEL: str = "gemini-1.5-pro-002"
-LLM_TEMPERATURE: float = 0.5
-LLM_MAX_TOKENS: int = 1200
-GLOBAL_CONTEXT_SUMMARY_INTERVAL: int = 5
-MAX_DEPTH: int = 5
-# ---
-
+# Import fixed utilities first
+from .constants import MAX_RETRIES, RETRY_DELAY
+from .memory import LocalMemory, GlobalMemory
+from .utils import handle_node_retryable_error
+from .attention_mechanism import AttentionMechanism
+from .node import Node
 
 class Agent:
     def __init__(self, llm, llm_config, global_context: str = "This agent decomposes complex tasks.") -> None:
@@ -126,15 +119,13 @@ class Agent:
                 break  # Exit retry loop on success
 
             except Exception as e:
-                if handle_retryable_error(node, attempt, e):
+                if handle_node_retryable_error(node, attempt, e):
                     return  # Max retries exceeded
 
         if node.status == "running":
             node.status = "completed"
             if not node.child_ids:
                 st.session_state.attention_mechanism.summarize_node(node)
-
-
 
     def _regenerate_node(self, node: Node, regeneration_guidance: str) -> None:
         """Resets a node for regeneration and stores guidance."""

@@ -1,4 +1,6 @@
 # SMARTAGENT/ui/app.py
+import sys
+sys.path.insert(0, ".") # Add current directory to Python path
 import streamlit as st
 import google.generativeai as genai
 from agent.agent import Agent

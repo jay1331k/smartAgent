@@ -1,0 +1,24 @@
+{
+    "node_lookup": {
+        "bd299354-0bca-488b-a11a-4e00b8b181a4": {
+            "node_id": "bd299354-0bca-488b-a11a-4e00b8b181a4",
+            "parent_id": null,
+            "child_ids": [],
+            "task_description": "Create a simple command-line to-do list app where users can add tasks, view all tasks, mark tasks as completed, delete tasks, and save tasks to a file.",
+            "status": "completed",
+            "output": "The LLM provided the following structured response:\n{\n  \"subtasks\": [\n    {\n      \"task_description\": \"Create a Python script that handles command-line arguments for adding, viewing, completing, and deleting tasks.\",\n      \"constraints\": []\n    },\n    {\n      \"task_description\": \"Implement the 'add task' functionality. This should take a task description as input and append it to a list of tasks.\",\n      \"constraints\": []\n    },\n    {\n      \"task_description\": \"Implement the 'view tasks' functionality. This should display all tasks, including their completion status and potentially an index or ID.\",\n      \"constraints\": []\n    },\n    {\n      \"task_description\": \"Implement the 'mark task as completed' functionality.  This should allow the user to mark a task as complete, likely by providing an index or ID.\",\n      \"constraints\": []\n    },\n    {\n      \"task_description\": \"Implement the 'delete task' functionality. This should allow a user to delete a task, likely by its index or ID.\",\n      \"constraints\": []\n    },\n    {\n      \"task_description\": \"Implement the 'save tasks to file' functionality. The tasks should be saved to a text file in a way that preserves the task data and completion status.\",\n      \"constraints\": []\n    },\n    {\n      \"task_description\": \"Implement the 'load tasks from file' functionality.  When the script starts, it should load tasks from the file created in the previous step.\",\n      \"constraints\": []\n    },\n    {\n      \"task_description\": \"Handle edge cases and potential errors, such as invalid input, file not found, and attempting to modify or delete non-existent tasks.\",\n      \"constraints\": []\n    }\n  ]\n}",
+            "local_memory": {
+                "raw_llm_output": "{\n  \"subtasks\": [\n    {\n      \"task_description\": \"Create a Python script that handles command-line arguments for adding, viewing, completing, and deleting tasks.\",\n      \"constraints\": []\n    },\n    {\n      \"task_description\": \"Implement the 'add task' functionality. This should take a task description as input and append it to a list of tasks.\",\n      \"constraints\": []\n    },\n    {\n      \"task_description\": \"Implement the 'view tasks' functionality. This should display all tasks, including their completion status and potentially an index or ID.\",\n      \"constraints\": []\n    },\n    {\n      \"task_description\": \"Implement the 'mark task as completed' functionality.  This should allow the user to mark a task as complete, likely by providing an index or ID.\",\n      \"constraints\": []\n    },\n    {\n      \"task_description\": \"Implement the 'delete task' functionality. This should allow a user to delete a task, likely by its index or ID.\",\n      \"constraints\": []\n    },\n    {\n      \"task_description\": \"Implement the 'save tasks to file' functionality. The tasks should be saved to a text file in a way that preserves the task data and completion status.\",\n      \"constraints\": []\n    },\n    {\n      \"task_description\": \"Implement the 'load tasks from file' functionality.  When the script starts, it should load tasks from the file created in the previous step.\",\n      \"constraints\": []\n    },\n    {\n      \"task_description\": \"Handle edge cases and potential errors, such as invalid input, file not found, and attempting to modify or delete non-existent tasks.\",\n      \"constraints\": []\n    }\n  ]\n}"
+            },
+            "error_message": "",
+            "depth": 0
+        }
+    },
+    "attention_mechanism": {
+        "dependency_graph": {},
+        "constraints": {}
+    },
+    "root_node_id": "bd299354-0bca-488b-a11a-4e00b8b181a4",
+    "global_memory": "This agent decomposes complex tasks.",
+    "execution_count": 1
+}
